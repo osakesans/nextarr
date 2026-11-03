@@ -133,9 +133,9 @@ def make_handler(engine):
                 banner += '<div class="banner"><b>Paused.</b> A PAUSE file exists in the config folder.</div>'
             if engine.last_error:
                 banner += f'<div class="banner"><b>Last run failed:</b> {E(engine.last_error)}</div>'
-            if s.get("pending_approvals"):
-                banner += (f'<div class="banner"><b>{s["pending_approvals"]} cleanup(s) wait for approval.</b> '
-                           f'<a href="/cleanup">Review</a></div>')
+            for a in store.approvals("pending"):
+                banner += (f'<div class="banner"><b>Cleanup #{a["id"]} waits for your approval:</b> '
+                           f'{len(a["payload"])} files. <a class="btn" href="/approvals/{a["id"]}">Review and approve</a></div>')
             return self._send(200, f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Nextarr · {E(title)}</title>
 <style>{CSS}</style></head><body><header><b>Nextarr</b>{nav}</header><main>{banner}{body}</main></body></html>""")
