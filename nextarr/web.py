@@ -13,6 +13,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import __version__, clients, config, store
 
+_NONCES = {}  # one-time approval form nonce -> approval id
+
 E = html.escape
 
 CSS = """
@@ -176,6 +178,9 @@ def make_handler(engine):
                     return self._settings(method, cfg)
                 if path == "/api/plan":
                     return self._json(engine.plans)
+                if path == "/done":  # result page after a POST, safe to refresh
+                    return self._page("Done", "/settings", f'<div class="card"><b>{E(q.get("msg", ""))}</b>'
+                                      f'<p><a href="/settings">Back to settings</a></p></div>')
                 if path == "/actions" and method == "POST":
                     return self._actions(self._form())
                 if path.startswith("/approvals/"):
@@ -326,21 +331,31 @@ More than {cfg['approval_threshold']} at once needs approval.</p>
             a = store.get_approval(aid)
             if not a:
                 return self._send(404, "Unknown approval")
-            msg = ""
+            # Every rendered form gets a one-time nonce that is consumed on use, so a re-sent old
+            # form (browser refresh, back button) can never act a second time.
+            here = self.path.split("&msg=")[0].split("?msg=")[0]
             if method == "POST":
                 f = self._form()
-                if f.get("do") == "approve" and a["status"] == "pending":
-                    store.set_approval_status(aid, "running")
-                    threading.Thread(target=engine.approve, args=(aid,), daemon=True).start()
-                    msg = "Approved. Deleting in the background, see the Log page."
-                elif f.get("do") == "stop":
-                    engine.stop(aid)
-                    msg = "Stopped. Nothing was deleted."
-                a = store.get_approval(aid)
+                msg = "That form was out of date. Nothing was done."
+                if _NONCES.pop(f.get("nonce", ""), None) == aid and a["status"] == "pending":
+                    if f.get("do") == "approve":
+                        store.set_approval_status(aid, "running")
+                        threading.Thread(target=engine.approve, args=(aid,), daemon=True).start()
+                        msg = "Approved. Deleting in the background, see the Log page."
+                    elif f.get("do") == "stop":
+                        engine.stop(aid)
+                        msg = "Stopped. Nothing was deleted."
+                sep = "&" if "?" in here else "?"
+                return self._redirect(here + sep + "msg=" + urllib.parse.quote(msg))
+            msg = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("msg", [""])[0]
+            nonce = secrets.token_urlsafe(18)
+            _NONCES[nonce] = aid
+            while len(_NONCES) > 200:
+                _NONCES.pop(next(iter(_NONCES)))
             rows = "".join(f'<tr><td>{E(c["title"])}</td><td>{c["label"]}</td><td>{E(c["reason"])}</td></tr>'
                            for c in a["payload"])
             buttons = ("" if a["status"] != "pending" else
-                       '<form method="post" style="display:flex;gap:8px"><button name="do" value="approve">'
+                       '<form method="post" style="display:flex;gap:8px"><input type="hidden" name="nonce" value="' + nonce + '"><button name="do" value="approve">'
                        'Approve and delete</button><button name="do" value="stop" class="bad">Stop</button></form>')
             return self._page(f"Approval #{aid}", "/cleanup", f"""<div class="card"><h2>Approval #{aid}</h2>
 <p>Status: <span class="tag">{E(a['status'])}</span> · {len(a['payload'])} files · expires {time.strftime('%Y-%m-%d %H:%M', time.localtime(a['expires']))}</p>
@@ -384,7 +399,7 @@ More than {cfg['approval_threshold']} at once needs approval.</p>
                                   f'<p><a href="/settings">Back to settings</a></p></div>')
             elif f.get("do") == "restore":
                 msg = engine.restore_backup()
-                return self._page("Restore", "/settings", f'<div class="card"><b>{E(msg)}</b></div>')
+                return self._redirect("/done?msg=" + urllib.parse.quote(msg))
             return self._redirect("/")
 
         def _settings(self, method, cfg):
