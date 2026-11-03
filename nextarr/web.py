@@ -329,8 +329,10 @@ More than {cfg['approval_threshold']} at once needs approval.</p>
             msg = ""
             if method == "POST":
                 f = self._form()
-                if f.get("do") == "approve":
-                    msg = engine.approve(aid)
+                if f.get("do") == "approve" and a["status"] == "pending":
+                    store.set_approval_status(aid, "running")
+                    threading.Thread(target=engine.approve, args=(aid,), daemon=True).start()
+                    msg = "Approved. Deleting in the background, see the Log page."
                 elif f.get("do") == "stop":
                     engine.stop(aid)
                     msg = "Stopped. Nothing was deleted."
@@ -353,7 +355,7 @@ More than {cfg['approval_threshold']} at once needs approval.</p>
                 return self._send(403, "Invalid link")
             if not self._authed(config.load()):
                 return self._send(401, "Login required", extra={"WWW-Authenticate": 'Basic realm="Nextarr"'})
-            return self._approval_page(aid, "GET")
+            return self._approval_page(aid, self.command)
 
         def _log(self, level):
             levels = ["", "action", "delete", "plan", "warning", "error", "info"]

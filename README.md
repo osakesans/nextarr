@@ -51,7 +51,7 @@ mkdir -p nextarr/config && sudo chown 1000:1000 nextarr/config   # the container
 ```yaml
 services:
   nextarr:
-    image: ghcr.io/osakesans/nextarr:0.1.3
+    image: ghcr.io/osakesans/nextarr:0.1.4
     container_name: nextarr
     restart: unless-stopped
     user: "1000:1000"

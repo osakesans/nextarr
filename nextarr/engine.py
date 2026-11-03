@@ -461,13 +461,15 @@ class Engine:
         self._delete(sonarr, ready)
 
     def _delete(self, sonarr, items):
-        sonarr.delete_files([c["file_id"] for c in items])
-        for c in items:
-            store.log(f"Deleted {c['title']} {c['label']} ({c['reason']})", "delete")
+        for i in range(0, len(items), 50):
+            chunk = items[i:i + 50]
+            sonarr.send("DELETE", "/episodefile/bulk", {"episodeFileIds": [c["file_id"] for c in chunk]}, timeout=600)
+            for c in chunk:
+                store.log(f"Deleted {c['title']} {c['label']} ({c['reason']})", "delete")
 
     def approve(self, aid):
         a = store.get_approval(aid)
-        if not a or a["status"] != "pending":
+        if not a or a["status"] not in ("pending", "running"):
             return "This approval is no longer pending."
         cfg = config.load()
         if cfg["dry_run"]:
@@ -476,9 +478,15 @@ class Engine:
         still = {(c["series_id"], c["file_id"]) for p in self.plans.values() for c in
                  [dict(d, series_id=p["id"]) for d in p["delete"]]}
         items = [c for c in a["payload"] if (c["series_id"], c["file_id"]) in still]
-        with self.lock:
-            self._delete(self._clients(cfg)[0], items)
+        try:
+            with self.lock:
+                self._delete(self._clients(cfg)[0], items)
+        except Exception as e:
+            store.set_approval_status(aid, "failed")
+            store.log(f"Approval #{aid} failed while deleting: {e}", "error")
+            return f"Failed: {e}"
         store.set_approval_status(aid, "approved")
+        store.log(f"Approval #{aid}: deleted {len(items)} files", "action")
         skipped = len(a["payload"]) - len(items)
         return f"Deleted {len(items)} files." + (f" {skipped} skipped (no longer candidates)." if skipped else "")
 
