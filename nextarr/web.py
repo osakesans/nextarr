@@ -120,6 +120,10 @@ def make_handler(engine):
                           for h, n in [("/", "Overview"), ("/series", "Series"), ("/cleanup", "Cleanup"),
                                        ("/log", "Log"), ("/settings", "Settings")])
             banner = ""
+            if not engine.configured(cfg):
+                banner += ('<div class="banner"><b>Welcome to Nextarr.</b> Connect Sonarr and Tautulli under '
+                           '<a href="/settings">Settings</a> (Plex and Overseerr are optional), then press '
+                           '<i>Test connections</i>.</div>')
             if cfg["dry_run"]:
                 banner += ('<div class="banner"><b>Dry run.</b> Nextarr only logs what it would do. '
                            'Nothing is monitored, searched or deleted. Turn it off under Settings.</div>')
@@ -369,6 +373,13 @@ More than {cfg['approval_threshold']} at once needs approval.</p>
             elif f.get("do") == "check":
                 threading.Thread(target=engine.check_availability, args=(int(f.get("n") or 20),), daemon=True).start()
                 return self._redirect("/cleanup")
+            elif f.get("do") == "test":
+                rows = "".join(f'<tr><td>{E(n)}</td><td class="{"t-action" if ok else "t-error" if ok is False else "muted"}">'
+                               f'{"OK" if ok else "failed" if ok is False else "-"}</td><td>{E(d)}</td></tr>'
+                               for n, ok, d in engine.test_connections())
+                return self._page("Test connections", "/settings",
+                                  f'<div class="card"><b>Connection test</b><table>{rows}</table>'
+                                  f'<p><a href="/settings">Back to settings</a></p></div>')
             elif f.get("do") == "restore":
                 msg = engine.restore_backup()
                 return self._page("Restore", "/settings", f'<div class="card"><b>{E(msg)}</b></div>')
@@ -459,7 +470,8 @@ More than {cfg['approval_threshold']} at once needs approval.</p>
 <code>{E(base)}/webhook/tautulli?token={E(c['webhook_token'])}</code>
 <p class="muted">Sonarr (Connect → Webhook, "On Series Add"):</p>
 <code>{E(base)}/webhook/sonarr?token={E(c['webhook_token'])}</code></div>
-<button>Save</button></form>
+<div style="display:flex;gap:8px;flex-wrap:wrap"><button>Save</button>
+<button formaction="/actions" name="do" value="test" class="sec">Test connections</button></div></form>
 <div class="card" style="margin-top:16px"><b>Monitoring backup</b>
 <p class="muted">Saved automatically before the first live run. Restoring puts every episode's monitored
 flag back as it was and turns dry run on. Files already deleted are not restored.</p>

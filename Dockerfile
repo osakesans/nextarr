@@ -4,6 +4,7 @@ FROM python:3.13.18-slim@sha256:ae14d4ce8771606477a81446e7ef429edd6762305fc50c84
 LABEL org.opencontainers.image.title="Nextarr" \
       org.opencontainers.image.description="Rolling TV library for Sonarr: keep only the episodes people are about to watch" \
       org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.source="https://github.com/osakesans/nextarr" \
       com.centurylinklabs.watchtower.enable="false"
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 NEXTARR_CONFIG_DIR=/config NEXTARR_PORT=8790

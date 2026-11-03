@@ -213,8 +213,36 @@ class Engine:
         finally:
             self.lock.release()
 
+    def configured(self, cfg=None):
+        cfg = cfg or config.load()
+        return bool(cfg["sonarr"]["url"] and cfg["sonarr"]["api_key"]
+                    and cfg["tautulli"]["url"] and cfg["tautulli"]["api_key"])
+
+    def test_connections(self):
+        """Try every configured service once; returns [(name, ok, detail)]."""
+        cfg = config.load()
+        sonarr, tautulli, plex, overseerr = self._clients(cfg)
+        out = []
+        for name, fn in (("Sonarr", lambda: f"version {sonarr.status().get('version')}"),
+                         ("Tautulli", lambda: f"{len(tautulli.call('get_users') or [])} users"),
+                         ("Plex", (lambda: f"{len(plex.show_tvdb_map())} shows") if plex else None),
+                         ("Overseerr", (lambda: f"{len(overseerr.tv_requests(take=20))} recent TV requests")
+                          if overseerr else None)):
+            if fn is None:
+                out.append((name, None, "not configured (optional)"))
+                continue
+            try:
+                out.append((name, True, fn()))
+            except Exception as e:
+                out.append((name, False, str(e)[:200]))
+        return out
+
     def _sync(self, reason):
         cfg = config.load()
+        if not self.configured(cfg):
+            self.summary = {"last_sync": None, "setup_needed": True}
+            store.kv_set("heartbeat", time.time())
+            return
         if config.paused():
             store.log("PAUSE file present: sync skipped", "warning")
             return

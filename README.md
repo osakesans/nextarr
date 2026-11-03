@@ -41,18 +41,17 @@ episodes ahead of everyone are deleted unless they are in the season someone is 
 
 ## Install
 
-Clone the repository and build the image (a published image will follow):
+Images for amd64 and arm64 (Raspberry Pi, most NAS) are published on GitHub Container Registry.
+Pin an exact version; Nextarr never updates itself.
 
 ```sh
-git clone https://github.com/osakesans/nextarr.git
-cd nextarr
-docker build -t nextarr:0.1.2 .
+mkdir -p nextarr/config && sudo chown 1000:1000 nextarr/config   # the container runs as uid 1000
 ```
 
 ```yaml
 services:
   nextarr:
-    image: nextarr:0.1.2
+    image: ghcr.io/osakesans/nextarr:0.1.3
     container_name: nextarr
     restart: unless-stopped
     user: "1000:1000"
@@ -66,9 +65,17 @@ services:
       com.centurylinklabs.watchtower.enable: "false"
 ```
 
-Open `http://<host>:8790/settings` and fill in Sonarr, Tautulli, Plex and (optionally)
-Overseerr. Plex inside Docker usually needs `https://plex:32400` with certificate
-verification turned off.
+Open `http://<host>:8790` and follow the welcome message: fill in Sonarr and Tautulli
+(required), Plex and Overseerr (optional) under **Settings**, save, and press
+**Test connections**. Use the names your containers have on the Docker network (for example
+`http://sonarr:8989`), or IP addresses. Plex usually needs `https://plex:32400` with
+certificate verification turned off.
+
+Everything is configured in the web UI and stored in `/config/config.json`; nothing is
+tied to a particular machine. Nextarr starts in **dry run**, so you can look at the plan
+under *Series* and *Cleanup* before anything happens.
+
+Requirements: Sonarr v4, Tautulli, and Plex. Overseerr is optional.
 
 ### Webhooks (recommended)
 
