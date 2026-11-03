@@ -193,6 +193,11 @@ class Engine:
                 plan["delete"].append({"episode_id": e["id"], "file_id": e["episodeFileId"],
                                        "label": _label(k), "season": e["seasonNumber"], "reason": reason,
                                        "score": (e.get("episodeFile") or {}).get("customFormatScore")})
+        # A multi-episode file is only deleted when every episode in it is a candidate.
+        doomed = {d["episode_id"] for d in plan["delete"]}
+        shared = {e["episodeFileId"] for e in episodes
+                  if e.get("hasFile") and e["id"] not in doomed}
+        plan["delete"] = [d for d in plan["delete"] if d["file_id"] not in shared]
         if series["id"] in unavailable and plan["delete"]:
             plan["status"] = "hard to find"
             plan["held"] = len(plan["delete"])
@@ -461,11 +466,16 @@ class Engine:
         self._delete(sonarr, ready)
 
     def _delete(self, sonarr, items):
-        for i in range(0, len(items), 50):
-            chunk = items[i:i + 50]
-            sonarr.send("DELETE", "/episodefile/bulk", {"episodeFileIds": [c["file_id"] for c in chunk]}, timeout=600)
-            for c in chunk:
-                store.log(f"Deleted {c['title']} {c['label']} ({c['reason']})", "delete")
+        by_file = {}
+        for c in items:  # one file can hold several episodes
+            by_file.setdefault(c["file_id"], []).append(c)
+        ids = list(by_file)
+        for i in range(0, len(ids), 50):
+            chunk = ids[i:i + 50]
+            sonarr.send("DELETE", "/episodefile/bulk", {"episodeFileIds": chunk}, timeout=600)
+            for fid in chunk:
+                for c in by_file[fid]:
+                    store.log(f"Deleted {c['title']} {c['label']} ({c['reason']})", "delete")
 
     def approve(self, aid):
         a = store.get_approval(aid)
