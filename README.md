@@ -8,6 +8,10 @@ watch, so your library stays small without anyone running out of episodes.
 - Episodes that **every active viewer has passed** are deleted after a grace period.
 - New episodes of airing shows are only fetched when **someone has caught up**.
 - Works with Plex through **Tautulli**, and with **Overseerr** requests (also from Requestrr/Discord).
+- Viewers can **start at any season**, by request or with `!start` on Discord.
+
+For people who only watch, see the [guide for viewers](docs/viewers.md). Changes are in the
+[changelog](CHANGELOG.md).
 
 Nextarr starts in **dry run**: it only logs what it would do. Nothing is monitored, searched
 or deleted until you turn dry run off in the web UI.
@@ -24,7 +28,15 @@ or deleted until you turn dry run off in the web UI.
 | Exclude a series | Sonarr tag `keep` (configurable) |
 
 Per series, each Plex user's position is their last fully watched episode (from Tautulli).
-A user who requested the series in Overseerr but has not started gets S01E01 + 2.
+A user who requested the series in Overseerr but has not started gets the first episodes of the
+lowest season they asked for, so a request for season 29 gives S29E01 + S29E02. A request only
+counts while it is newer than the last episode the user finished, and never moves them back to a
+season they have already reached.
+
+Overseerr refuses seasons that are already partly available. For those, viewers can write
+`!start South Park 29` in a Discord channel (see [below](#discord-start-command)), or you can use
+**Start a viewer at a season** on the series page in the web UI. Neither moves a viewer back to a
+season they have already reached.
 Episodes behind the slowest active viewer are deleted; episodes between viewers are kept;
 episodes ahead of everyone are deleted unless they are in the season someone is watching.
 
@@ -51,7 +63,7 @@ mkdir -p nextarr/config && sudo chown 1000:1000 nextarr/config   # the container
 ```yaml
 services:
   nextarr:
-    image: ghcr.io/osakesans/nextarr:0.1.4
+    image: ghcr.io/osakesans/nextarr:0.1.9
     container_name: nextarr
     restart: unless-stopped
     user: "1000:1000"
@@ -95,6 +107,24 @@ decides what to download. Series with the exclude tag get a full search from Nex
 
 To make Discord requests count for the right person, import your Plex users in Overseerr and
 fill in each user's Discord ID. Requestrr then requests in their name.
+
+### Discord start command
+
+`!start <series> <season>` lets viewers start at a season themselves, also one Overseerr refuses.
+It needs Overseerr, because viewers are matched through the Discord ID on their Overseerr user.
+
+1. Open your bot in the [Discord Developer Portal](https://discord.com/developers/applications) and turn
+   on **Message Content Intent** under *Bot*. You can use a new bot or the one Requestrr already uses.
+2. Make sure the bot can view the channel, read its message history and send messages there.
+3. Under **Settings → Notifications** in Nextarr, fill in the bot token, the channel ID and the reply
+   language (`en` or `da`), and save.
+4. Write `!start <a series> <a season>` in the channel. The bot answers within about 30 seconds.
+
+Nextarr polls the channel over the REST API and needs no extra libraries. On its first run it only
+remembers where the channel is, so old messages are never acted on. Leave the channel ID empty to turn
+the command off. If you change the bot's token, also update it in Nextarr.
+
+Send your viewers the [guide for viewers](docs/viewers.md).
 
 ### Homepage
 

@@ -32,6 +32,7 @@ DEFAULTS = {
     "max_availability_checks_per_run": 40,
     # Notifications and links
     "discord_webhook": "",
+    "discord_bot": {"token": "", "channel_id": "", "language": "en"},
     "public_url": "",
     "webhook_token": "",
     # Web UI login (optional)
@@ -39,7 +40,7 @@ DEFAULTS = {
 }
 
 SECRET_FIELDS = {("sonarr", "api_key"), ("tautulli", "api_key"), ("plex", "token"),
-                 ("overseerr", "api_key"), ("discord_webhook",), ("webhook_token",),
+                 ("overseerr", "api_key"), ("discord_webhook",), ("discord_bot", "token"), ("webhook_token",),
                  ("auth", "password_hash")}
 
 _lock = threading.Lock()

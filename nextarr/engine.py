@@ -47,6 +47,30 @@ def _label(k):
     return f"S{k[0]:02d}E{k[1]:02d}" if k else "-"
 
 
+def _set_start(v, season, ts):
+    """Remember the newest requested start season for a viewer."""
+    if ts >= v.get("start_ts", 0):
+        v["start"], v["start_ts"] = season, ts
+
+
+def _effective_pos(v, eps):
+    """Where the viewer's window starts from.
+
+    A start season counts only while it is newer than the viewer's last finished episode,
+    so an old request never pulls someone back once they are watching.
+    """
+    start = v.get("start")
+    if start is None or v.get("start_ts", 0) <= max(v["watched"].values(), default=0):
+        return v["pos"]
+    if not any(e["seasonNumber"] == start for e in eps):
+        return v["pos"]
+    if v["pos"] is None and start <= eps[0]["seasonNumber"]:
+        return None  # a request from the first season is the normal S01E01 + n
+    if v["pos"] is not None and start <= v["pos"][0]:
+        return v["pos"]  # never pulled back to a season they have already reached
+    return (start, 0)
+
+
 class Engine:
     def __init__(self):
         self.lock = threading.Lock()
@@ -107,8 +131,20 @@ class Engine:
                                             "watched": {}, "requested": False})
                     v["requested"] = True
                     v["last"] = max(v["last"], created)
+                    seasons = [s for s in q.get("seasons") or [] if s]
+                    if seasons:
+                        _set_start(v, min(seasons), created)
             except clients.ApiError as e:
                 store.log(f"Overseerr unavailable, requests ignored this run: {e}", "warning")
+        # A start set by hand in the web UI, for a season Overseerr refuses to request
+        # (it does not allow seasons that are already partly available).
+        for st in store.viewer_starts():
+            if st["ts"] < now - cfg["active_days"] * DAY:
+                continue
+            v = viewers.setdefault(st["tvdb_id"], {}).setdefault(
+                st["user"], {"name": st["name"], "pos": None, "last": 0, "watched": {}, "requested": False})
+            v["last"] = max(v["last"], st["ts"])
+            _set_start(v, st["season"], st["ts"])
         return viewers, unmatched
 
     # ---------- per-series plan ----------
@@ -134,27 +170,30 @@ class Engine:
         plan["files"] = sum(1 for e in eps if e.get("hasFile"))
         first = eps[0]
         keep = {first["id"]}
-        ends, next_seasons = [], set()
+        ends, next_seasons, positions = [], set(), []
         for v in active:
-            if v["pos"] is None:
+            pos = _effective_pos(v, eps)
+            positions.append(pos)
+            if pos is None:
                 window = eps[:1 + n]
             else:
-                i = sum(1 for e in eps if _key(e) <= v["pos"])
+                i = sum(1 for e in eps if _key(e) <= pos)
                 window = eps[i:i + n]
             keep.update(e["id"] for e in window)
             if window:
                 ends.append(_key(window[-1]))
                 next_seasons.add(window[0]["seasonNumber"])
             else:
-                ends.append(v["pos"])
+                ends.append(pos)
             plan["viewers"].append({"name": v["name"], "pos": _label(v["pos"]),
                                     "next": [_label(_key(e)) for e in window],
                                     "requested": v["requested"],
+                                    "start": v.get("start") if pos != v["pos"] else None,
                                     "last": v["last"]})
         plan["inactive_viewers"] = [v["name"] for v in all_v if v not in active]
         min_pos = None
-        if active and all(v["pos"] is not None for v in active):
-            min_pos = min(v["pos"] for v in active)
+        if active and all(p is not None for p in positions):
+            min_pos = min(positions)
         max_end = max(ends) if ends else None
         last_activity = max((v["last"] for v in all_v), default=0)
 

@@ -136,6 +136,16 @@ class Overseerr:
         self.base = url.rstrip("/") + "/api/v1"
         self.h = {"X-Api-Key": key}
 
+    def users_by_discord(self):
+        """Discord user ID -> Plex username, for users with a Discord ID in Overseerr."""
+        out = {}
+        for u in (_request("GET", f"{self.base}/user?take=500", self.h) or {}).get("results", []):
+            s = _request("GET", f"{self.base}/user/{u['id']}/settings/notifications", self.h) or {}
+            name = u.get("plexUsername") or u.get("username") or u.get("email")
+            if s.get("discordId") and name:
+                out[str(s["discordId"])] = name
+        return out
+
     def tv_requests(self, take=200):
         r = _request("GET", f"{self.base}/request?take={take}&skip=0&filter=all&sort=added", self.h)
         out = []
@@ -146,6 +156,7 @@ class Overseerr:
             out.append({
                 "tvdb_id": (x.get("media") or {}).get("tvdbId"),
                 "created": x.get("createdAt"),
+                "seasons": [s.get("seasonNumber") for s in x.get("seasons") or []],
                 "user": by.get("plexUsername") or by.get("username") or by.get("email"),
             })
         return out

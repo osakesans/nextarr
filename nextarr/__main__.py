@@ -2,7 +2,7 @@
 import os
 import threading
 
-from . import __version__, config, store, web
+from . import __version__, config, discordbot, store, web
 from .engine import Engine
 
 
@@ -12,6 +12,7 @@ def main():
     store.log(f"Nextarr {__version__} starting on port {port} (dry run: {cfg['dry_run']})", "info")
     engine = Engine()
     threading.Thread(target=engine.run_forever, daemon=True).start()
+    threading.Thread(target=discordbot.Bot(engine).run_forever, daemon=True).start()
     web.serve(engine, port)
 
 

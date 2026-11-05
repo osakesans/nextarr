@@ -283,16 +283,35 @@ def make_handler(engine):
             if not p:
                 return self._send(404, "Unknown series")
             vrows = "".join(f'<tr><td>{E(v["name"])}</td><td>{v["pos"]}</td><td>{", ".join(v["next"])}</td>'
-                            f'<td>{"yes" if v["requested"] else ""}</td><td>{_ago(v["last"])}</td></tr>'
+                            f'<td>{"yes" if v["requested"] else ""}</td>'
+                            f'<td>{("season " + str(v["start"])) if v.get("start") else ""}</td>'
+                            f'<td>{_ago(v["last"])}</td></tr>'
                             for v in p["viewers"])
+            starts = [s for s in store.viewer_starts() if s["tvdb_id"] == p["tvdb"]]
+            srows = "".join(f'<tr><td>{E(s["name"])}</td><td>season {s["season"]}</td><td>{_ago(s["ts"])}</td>'
+                            f'<td><form method="post" action="/actions" style="margin:0">'
+                            f'<input type="hidden" name="do" value="clear_start"><input type="hidden" name="sid" value="{sid}">'
+                            f'<input type="hidden" name="user" value="{E(s["user"])}">'
+                            f'<button class="sec">Remove</button></form></td></tr>' for s in starts)
+            names = sorted({v["name"] for pl in engine.plans.values() for v in pl["viewers"]}, key=str.lower)
+            options = "".join(f'<option value="{E(n)}">' for n in names)
             drows = "".join(f'<tr><td>{d["label"]}</td><td>{E(d["reason"])}</td></tr>' for d in p["delete"])
             inactive = ", ".join(E(x) for x in p.get("inactive_viewers", [])) or "none"
             return self._page(p["title"], "/series", f"""<div class="card"><h2>{E(p['title'])}</h2>
 <p><span class="tag">{E(p['status'])}</span> · {p['files']} of {p['episodes']} episodes have a file</p>
 <p><b>Always kept:</b> {E(', '.join(p['keep'])) or '-'}</p></div>
 <div class="card"><b>Active viewers</b><table><tr><th>User</th><th>Last watched</th><th>Kept ahead</th>
-<th>Requested</th><th>Last activity</th></tr>{vrows or '<tr><td colspan=5 class=muted>none</td></tr>'}</table>
+<th>Requested</th><th>Starts at</th><th>Last activity</th></tr>{vrows or '<tr><td colspan=6 class=muted>none</td></tr>'}</table>
 <p class="muted">Inactive viewers (ignored): {inactive}</p></div>
+<div class="card"><b>Start a viewer at a season</b>
+<p class="muted">Fetches the first episodes of the season for this viewer and rolls on as they watch. Use it when Overseerr
+will not take the request because the season is already partly available.</p>
+{f'<table><tr><th>User</th><th>Season</th><th>Set</th><th></th></tr>{srows}</table>' if srows else ''}
+<form method="post" action="/actions" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+<input type="hidden" name="do" value="set_start"><input type="hidden" name="sid" value="{sid}">
+<input name="user" list="plexusers" placeholder="Plex username" required><datalist id="plexusers">{options}</datalist>
+<input name="season" type="number" min="1" placeholder="Season" required style="width:90px">
+<button>Start viewer</button></form></div>
 <div class="card"><b>Delete candidates</b><table><tr><th>Episode</th><th>Reason</th></tr>
 {drows or '<tr><td colspan=2 class=muted>none</td></tr>'}</table></div>""")
 
@@ -397,6 +416,23 @@ More than {cfg['approval_threshold']} at once needs approval.</p>
                 return self._page("Test connections", "/settings",
                                   f'<div class="card"><b>Connection test</b><table>{rows}</table>'
                                   f'<p><a href="/settings">Back to settings</a></p></div>')
+            elif f.get("do") in ("set_start", "clear_start"):
+                sid = int(f.get("sid") or 0)
+                p = engine.plans.get(sid)
+                user = (f.get("user") or "").strip()
+                if not p or not user:
+                    return self._send(400, "Unknown series or empty user")
+                if f["do"] == "set_start":
+                    season = int(f.get("season") or 0)
+                    if season < 1:
+                        return self._send(400, "Season must be 1 or higher")
+                    store.set_viewer_start(p["tvdb"], user, season)
+                    store.log(f"{p['title']}: {user} starts at season {season}", "action")
+                else:
+                    store.clear_viewer_start(p["tvdb"], user)
+                    store.log(f"{p['title']}: start for {user} removed", "action")
+                engine.trigger()
+                return self._redirect(f"/series/{sid}")
             elif f.get("do") == "restore":
                 msg = engine.restore_backup()
                 return self._redirect("/done?msg=" + urllib.parse.quote(msg))
@@ -423,6 +459,10 @@ More than {cfg['approval_threshold']} at once needs approval.</p>
                     cfg["discord_webhook"] = f["discord_webhook"].strip()
                 if f.get("discord_clear"):
                     cfg["discord_webhook"] = ""
+                if f.get("discord_bot.token", "").strip():
+                    cfg["discord_bot"]["token"] = f["discord_bot.token"].strip()
+                cfg["discord_bot"]["channel_id"] = f.get("discord_bot.channel_id", cfg["discord_bot"]["channel_id"]).strip()
+                cfg["discord_bot"]["language"] = f.get("discord_bot.language", cfg["discord_bot"]["language"]).strip() or "en"
                 for k in ("dry_run", "include_specials", "availability_check"):
                     cfg[k] = k in f
                 cfg["plex"]["verify_ssl"] = "plex.verify_ssl" in f
@@ -478,6 +518,9 @@ More than {cfg['approval_threshold']} at once needs approval.</p>
 <div class="card"><fieldset><legend>Notifications</legend>
 {secret('discord_webhook', bool(c['discord_webhook']))}
 {box('discord_clear', False, 'Remove the stored Discord webhook')}
+{secret('discord_bot.token', bool(c['discord_bot']['token']))}
+{txt('discord_bot.channel_id', c['discord_bot']['channel_id'], 'Channel for the !start command. Empty turns the command off')}
+{txt('discord_bot.language', c['discord_bot']['language'], 'Reply language: en or da')}
 {txt('public_url', c['public_url'], 'Address used in Discord links, e.g. https://nextarr.example.com')}</fieldset>
 <fieldset><legend>Login</legend>{box('auth.enabled', c['auth']['enabled'], 'Require login for the web UI')}
 {txt('auth.username', c['auth']['username'])}

@@ -27,6 +27,8 @@ def db():
         CREATE TABLE IF NOT EXISTS availability(series_id INTEGER, season INTEGER, ts REAL,
             available INTEGER, PRIMARY KEY(series_id, season));
         CREATE TABLE IF NOT EXISTS kv(key TEXT PRIMARY KEY, value TEXT);
+        CREATE TABLE IF NOT EXISTS viewer_starts(tvdb_id INTEGER, user TEXT, name TEXT, season INTEGER, ts REAL,
+            PRIMARY KEY(tvdb_id, user));
         """)
     return _conn
 
@@ -62,6 +64,24 @@ def kv_get(key, default=None):
 def kv_set(key, value):
     with _lock:
         db().execute("INSERT OR REPLACE INTO kv VALUES(?,?)", (key, json.dumps(value)))
+        db().commit()
+
+
+def viewer_starts():
+    with _lock:
+        return [dict(r) for r in db().execute("SELECT * FROM viewer_starts")]
+
+
+def set_viewer_start(tvdb_id, name, season):
+    with _lock:
+        db().execute("INSERT OR REPLACE INTO viewer_starts VALUES(?,?,?,?,?)",
+                     (tvdb_id, name.lower(), name, season, time.time()))
+        db().commit()
+
+
+def clear_viewer_start(tvdb_id, user):
+    with _lock:
+        db().execute("DELETE FROM viewer_starts WHERE tvdb_id=? AND user=?", (tvdb_id, user.lower()))
         db().commit()
 
 
